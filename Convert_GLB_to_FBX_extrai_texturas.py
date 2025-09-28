@@ -1,0 +1,121 @@
+import os
+import subprocess
+from pygltflib import GLTF2
+from PIL import Image
+import io
+
+# --- CONFIGURAÇÃO ---
+# Coloque aqui o caminho para o executável do Blender no seu computador.
+# Descomente a linha que corresponde à sua instalação ou edite com o caminho correto.
+
+# Para instalações padrão do Windows (via instalador):
+BLENDER_PATH = "C:/Program Files/Blender Foundation/Blender 4.3/blender.exe"
+
+# Para instalações padrão do Windows (via Microsoft Store):
+# user_profile = os.environ['USERPROFILE']
+# BLENDER_PATH = f"{user_profile}/AppData/Local/Microsoft/WindowsApps/blender.exe"
+
+# Para instalações via Steam:
+# BLENDER_PATH = "C:/Program Files (x86)/Steam/steamapps/common/Blender/blender.exe"
+
+
+def convert_with_blender(blender_path, glb_input, fbx_output):
+    """Chama o Blender para converter um arquivo .glb para .fbx."""
+    
+    # Verifica se o caminho do Blender existe
+    if not os.path.exists(blender_path):
+        print(f"❌ ERRO: O Blender não foi encontrado em: {blender_path}")
+        print("Por favor, verifique a variável BLENDER_PATH no topo do script.")
+        return False
+
+    print(f"Iniciando conversão com o Blender...")
+    
+    # Comando Python que será executado dentro do Blender
+    script_expr = (
+        f"import bpy; "
+        f"bpy.ops.wm.read_factory_settings(use_empty=True); "
+        f"bpy.ops.import_scene.gltf(filepath='{glb_input}'); "
+        f"bpy.ops.export_scene.fbx(filepath='{fbx_output}', use_selection=False, path_mode='COPY', embed_textures=True); "
+        f"bpy.ops.wm.quit_blender()"
+    )
+
+    # Executa o Blender em segundo plano (sem abrir a interface gráfica)
+    try:
+        command = [blender_path, "--background", "--python-expr", script_expr]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        print(f"✅ Convertido com sucesso para: {fbx_output}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Falha ao converter com o Blender: {e}")
+        print(f"Saída de erro do Blender:\n{e.stderr}")
+        return False
+    except FileNotFoundError:
+        print(f"❌ ERRO: O comando do Blender falhou. Verifique se o caminho está correto.")
+        return False
+
+def extract_textures(glb_path, output_folder):
+    """Extrai texturas de um arquivo GLB."""
+    try:
+        print(f"Analisando {os.path.basename(glb_path)} para extração de texturas...")
+        gltf = GLTF2.load(glb_path)
+        
+        if not gltf.images:
+            print("ℹ️ Nenhuma imagem incorporada encontrada neste modelo.")
+            return
+
+        blob = gltf.binary_blob()
+        extracted_count = 0
+        for i, image in enumerate(gltf.images):
+            buffer_view = gltf.bufferViews[image.bufferView]
+            image_data = blob[buffer_view.byteOffset:(buffer_view.byteOffset + buffer_view.byteLength)]
+            img = Image.open(io.BytesIO(image_data))
+            
+            texture_name = image.name if image.name else f"texture_{i}"
+            # Garante que o nome do arquivo seja válido
+            safe_texture_name = "".join(c for c in texture_name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+            
+            output_image_path = os.path.join(output_folder, f"{safe_texture_name}.png")
+            img.convert("RGBA").save(output_image_path, "PNG")
+            extracted_count += 1
+
+        if extracted_count > 0:
+            print(f"✅ Extraídas {extracted_count} texturas para a pasta: {output_folder}")
+
+    except Exception as e:
+        print(f"❌ Falha ao extrair texturas de {os.path.basename(glb_path)}: {e}")
+
+def process_glb_files(input_folder=".", output_folder="output"):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    for filename in os.listdir(input_folder):
+        if filename.lower().endswith(".glb"):
+            base_name = os.path.splitext(filename)[0]
+            glb_path = os.path.join(input_folder, filename)
+            
+            # Normaliza os caminhos para evitar problemas com barras
+            glb_path_norm = os.path.abspath(glb_path).replace('\\', '/')
+            
+            model_output_folder = os.path.join(output_folder, base_name)
+            if not os.path.exists(model_output_folder):
+                os.makedirs(model_output_folder)
+
+            print(f"\n--- Processando: {filename} ---")
+            
+            # --- 1. Conversão para FBX com Blender ---
+            fbx_path = os.path.join(model_output_folder, f"{base_name}.fbx")
+            fbx_path_norm = os.path.abspath(fbx_path).replace('\\', '/')
+            convert_with_blender(BLENDER_PATH, glb_path_norm, fbx_path_norm)
+            
+            # --- 2. Extração de Texturas ---
+            extract_textures(glb_path, model_output_folder)
+
+if __name__ == "__main__":
+    INPUT_DIRECTORY = "Entrada"
+    OUTPUT_DIRECTORY = "Saida"
+
+    if not os.path.exists(INPUT_DIRECTORY):
+        os.makedirs(INPUT_DIRECTORY)
+        print(f"Pasta de entrada '{INPUT_DIRECTORY}' criada. Adicione seus .glb e execute novamente.")
+    else:
+        process_glb_files(INPUT_DIRECTORY, OUTPUT_DIRECTORY)
