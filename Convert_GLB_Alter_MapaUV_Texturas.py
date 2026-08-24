@@ -5,7 +5,7 @@ from PIL import Image
 import io
 
 # --- CONFIGURAÇÃO ---
-BLENDER_PATH = "C:/Program Files/Blender Foundation/Blender 4.3/blender.exe"
+BLENDER_PATH = "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe"
 
 def run_blender_script(blender_path, script_path, args):
     """Executa um script Python dentro do Blender com argumentos."""
